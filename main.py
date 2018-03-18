@@ -132,21 +132,6 @@ def get_batch(source, i, evaluation=False):
     return data, target
 
 
-def evaluate(data_source):
-    # Turn on evaluation mode which disables dropout.
-    model.eval()
-    total_loss = 0
-    ntokens = len(corpus.dictionary)
-    hidden = model.init_hidden(eval_batch_size)
-    for i in range(0, data_source.size(0) - 1, args.bptt):
-        data, targets = get_batch(data_source, i, evaluation=True)
-        output, hidden = model(data, hidden)
-        output_flat = output.view(-1, ntokens)
-        total_loss += len(data) * criterion(output_flat, targets).data
-        hidden = repackage_hidden(hidden)
-    return total_loss[0] / len(data_source)
-
-
 def train():
     # Turn on training mode which enables dropout.
     model.train()
@@ -184,6 +169,21 @@ def train():
 # Loop over epochs.
 lr = args.lr
 best_val_loss = None
+
+
+def evaluate(data_source):
+    # Turn on evaluation mode which disables dropout.
+    model.eval()
+    total_loss = 0
+    ntokens = len(corpus.dictionary)
+    hidden = model.init_hidden(eval_batch_size)
+    for i in range(0, data_source.size(0) - 1, args.bptt):
+        data, targets = get_batch(data_source, i, evaluation=True)
+        output, hidden = model(data, hidden)
+        output_flat = output.view(-1, ntokens)
+        total_loss += len(data) * criterion(output_flat, targets).data
+        hidden = repackage_hidden(hidden)
+    return total_loss[0] / len(data_source)
 
 # At any point you can hit Ctrl + C to break out of training early.
 try:
