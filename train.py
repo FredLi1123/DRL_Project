@@ -8,6 +8,7 @@ import reinforce
 from tqdm import tqdm
 from torch import optim
 import time
+from utils import query_gpu
 
 
 def repackage_hidden(h):
@@ -20,8 +21,8 @@ def repackage_hidden(h):
 
 def get_batch(source, i, cfg):
     seq_len = min(cfg['max_len'], len(source) - 1 - i)
-    data = Variable(source[i:i+seq_len], requires_grad=False)
-    target = Variable(source[i+1:i+1+seq_len].view(-1), requires_grad=False)
+    data = Variable(source[i:i+seq_len], requires_grad=False).cuda()
+    target = Variable(source[i+1:i+1+seq_len], requires_grad=False).cuda()
     return data, target
 
 
@@ -32,11 +33,11 @@ def evaluate(data_source, model, cfg):
     ntokens = cfg['dict_size']
     hidden = model.init_hidden(cfg['batch_size'])
     criterion = nn.CrossEntropyLoss()
-    for i in range(0, data_source.size(0) - 1, cfg['max_len']):
+    for i in tqdm(range(0, data_source.size(0) - 1, cfg['max_len'])):
         data, targets = get_batch(data_source, i, cfg)
         output, hidden = model(data, hidden)
         output_flat = output.view(-1, ntokens)
-        total_loss += len(data) * criterion(output_flat, targets).data
+        total_loss += len(data) * criterion(output_flat, targets.view(-1)).data
         hidden = repackage_hidden(hidden)
     model.train()
     return total_loss[0] / len(data_source)
@@ -49,7 +50,7 @@ def batchify(data, bsz):
     data = data.narrow(0, 0, nbatch * bsz)
     # Evenly divide the data across the bsz batches.
     data = data.view(bsz, -1).t().contiguous()
-    data = data.cuda()
+    # data = data.cuda()
     return data
 
 
@@ -78,7 +79,8 @@ if __name__ == '__main__':
                         help='use GPU')
     parser.add_argument('--init', type=str,
                         default='model_200.pt', help="The LSTM model")
-
+    parser.add_argument('--report', type=int,
+                        default=50, help="The report interval")
     args = parser.parse_args()
 
     corpus = data.Corpus(args.data)
@@ -91,34 +93,46 @@ if __name__ == '__main__':
     cfg['lr'] = args.lr
     cfg['batch_size'] = args.batch_size
     cfg['saveto'] = './'
-    train_data = batchify(corpus.train, 1)
+    cfg['report_interval'] = args.report
+
+    train_data = batchify(corpus.train, cfg['batch_size'])
     val_data = batchify(corpus.valid, cfg['batch_size'])
     test_data = batchify(corpus.test, cfg['batch_size'])
 
     with open(cfg['init'], 'rb') as f:
         policy = torch.load(f)
+        print(policy)
 
     reinforce_model = reinforce.Reinforce(policy=policy)
 
+    loss = evaluate(val_data, reinforce_model.policy, cfg)
+    print('start from valid loss = ', loss)
+
     ntokens = cfg['dict_size']
     total_loss = 0.0
+    total_LM_loss = 0.0
 
     optimizer = optim.Adam(reinforce_model.parameters(), lr=cfg['lr'])
     start_time = time.time()
     for epoch in range(cfg['epochs']):
-        hidden = policy.init_hidden(bsz=1)
-        for i in tqdm(range(0, cfg['max_len'], cfg['max_len'])):
+        hidden = policy.init_hidden(bsz=cfg['batch_size'])
+        for i in range(0, train_data.size(0) - 1, cfg['max_len']):
             optimizer.zero_grad()
             data, targets = get_batch(train_data, i, cfg)
-            loss, hidden = reinforce_model(data, targets, hidden)
+            loss, hidden, LM_loss = reinforce_model(data, targets, hidden)
             hidden = repackage_hidden(hidden)
             total_loss += loss.data
+            total_LM_loss += LM_loss
             loss.backward()
             optimizer.step()
-            # if (i // cfg['max_len'] + 1) % 50 == 0:
-            #     print(total_loss / 50)
-            #     total_loss = 0.0
-
+            nbsz = (i // cfg['max_len'] + 1)
+            if nbsz % cfg['report_interval'] == 0:
+                print('batch ', nbsz, ': loss = ', total_loss.cpu().numpy() / cfg['report_interval'])
+                print('batch ', nbsz, ': LM loss = ', total_LM_loss / cfg['report_interval'])
+                total_loss = 0.0
+                total_LM_loss = 0.0
+                print('elapse time: ', time.time() - start_time)
+            # query_gpu()
         print('Epoch: ', epoch, ' elapse:', time.time() - start_time)
 
         loss = evaluate(val_data, reinforce_model.policy, cfg)
