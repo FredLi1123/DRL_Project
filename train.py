@@ -81,6 +81,10 @@ if __name__ == '__main__':
                         default='model_200.pt', help="The LSTM model")
     parser.add_argument('--report', type=int,
                         default=50, help="The report interval")
+    parser.add_argument('--std', type=float,
+                        default=0.1, help="The standard deviation")
+    parser.add_argument('--gamma', type=float,
+                        default=1.0, help="discount factor")
     args = parser.parse_args()
 
     corpus = data.Corpus(args.data)
@@ -94,7 +98,10 @@ if __name__ == '__main__':
     cfg['batch_size'] = args.batch_size
     cfg['saveto'] = './'
     cfg['report_interval'] = args.report
+    cfg['std'] = args.std
+    cfg['gamma'] = args.gamma
 
+    print(cfg)
     train_data = batchify(corpus.train, cfg['batch_size'])
     val_data = batchify(corpus.valid, cfg['batch_size'])
     test_data = batchify(corpus.test, cfg['batch_size'])
@@ -103,19 +110,19 @@ if __name__ == '__main__':
         policy = torch.load(f)
         print(policy)
 
-    reinforce_model = reinforce.Reinforce(policy=policy)
+    reinforce_model = reinforce.Reinforce(policy=policy, sigma=cfg['std'], gamma=cfg['gamma'])
 
     loss = evaluate(val_data, reinforce_model.policy, cfg)
     print('start from valid loss = ', loss)
 
     ntokens = cfg['dict_size']
-    total_loss = 0.0
-    total_LM_loss = 0.0
 
     optimizer = optim.Adam(reinforce_model.parameters(), lr=cfg['lr'])
     start_time = time.time()
     for epoch in range(cfg['epochs']):
         hidden = policy.init_hidden(bsz=cfg['batch_size'])
+        total_loss = 0.0
+        total_LM_loss = 0.0
         for i in range(0, train_data.size(0) - 1, cfg['max_len']):
             optimizer.zero_grad()
             data, targets = get_batch(train_data, i, cfg)
@@ -138,5 +145,5 @@ if __name__ == '__main__':
         loss = evaluate(val_data, reinforce_model.policy, cfg)
 
         save_path = cfg['saveto'] + '_epoch' + str(epoch) + '_loss' + str(loss)
-        save_model(save_path, model)
+        save_model(save_path, reinforce_model.policy)
         print('Epoch: ', epoch, ' save to ', save_path)
