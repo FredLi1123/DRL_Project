@@ -10,7 +10,7 @@ class GaussianNet(nn.Module):
     def __init__(self, sigma):
         super(GaussianNet, self).__init__()
         self.sigma = sigma
-
+    
     def forward(self, mu, sample):
         '''
         :param mu: 1, bsz, 1300
@@ -19,7 +19,7 @@ class GaussianNet(nn.Module):
         '''
         # (sample - mu)**2: 1, bsz, 1300
 
-        logprob = -1 / (2 * self.sigma * self.sigma) * torch.sum((sample - mu) ** 2, dim=2)  # 2, bsz
+        logprob = -torch.sum((sample-mu)**2, dim=2)  # 1, bsz
         return logprob.sum(dim=0, keepdim=True)
 
 
@@ -28,65 +28,86 @@ class Reinforce(nn.Module):
     def __init__(self, policy, sigma=1, gamma=1.0):
         super(Reinforce, self).__init__()
         self.policy = policy
+        self.baseline = policy
+        self.baseline.eval()
+
         self.sigma = sigma
         self.gamma = gamma
         self.sampler = GaussianNet(self.sigma)
         self.loss_func = nn.CrossEntropyLoss(reduce=False)
 
-    def forward(self, inputs, targets, hidden):
+    def forward(self, inputs, targets, hidden, base_hidden):
         '''
         :param inputs: seq_len, bsz
         :param targets: seq_len, bsz
         :return:
         '''
-
-        logprobs, rewards, hidden = self.generate_episode(inputs, targets, hidden)
+        logprobs, base_rewards, rewards, hidden, base_hidden = \
+            self.generate_episode(inputs, targets, hidden, base_hidden)
         episode_len = rewards.size(0)
         bsz = rewards.size(1)
 
         running_sum = torch.zeros((bsz,)).cuda()
+        base_running_sum = torch.zeros((bsz,)).cuda()
         returns = Variable(torch.zeros((episode_len, bsz)), requires_grad=False).cuda()
+        base_returns = Variable(torch.zeros((episode_len, bsz)), requires_grad=False).cuda()
         # calculate returns
-        for i in range(episode_len - 1, -1, -1):
+        for i in range(episode_len-1, -1, -1):
             running_sum = rewards[i, :] + self.gamma * running_sum
             returns[i, :] = running_sum
-        # seq_len, bsz
-        loss = returns * logprobs
-        total_loss = - torch.mean(loss)
+            base_running_sum = base_rewards[i, :] + self.gamma * base_running_sum
+            base_returns[i, :] = base_running_sum
 
-        return total_loss, hidden, rewards.mean()
+        returns = returns - base_returns
+        loss = returns * logprobs  # seq_len, bsz
+        total_loss = torch.mean(loss)
 
-    def generate_episode(self, inputs, targets, hidden):
+        return total_loss, hidden, base_hidden, rewards.mean()
+
+    def generate_episode(self, inputs, targets, hidden, base_hidden):
         '''
         :param inputs: seq_len, bsz
         :param targets: seq_len, bsz
         :param hidden: (h, c); h: 1, bsz, 650; c: 1, bsz, 650
         '''
         probs = []
+        outputs = []
         rewards = []
+
+        base_scores, base_hidden = self.baseline(inputs, base_hidden)
 
         len_sentence = inputs.size(0)
         hc = torch.cat(hidden, dim=2)  # 1, bsz, 1300
-
         std = torch.zeros(hc.size()).fill_(self.sigma).cuda()
-
+        # emb: seq_len, bsz, embed_size
+        emb = self.policy.drop(self.policy.encoder(inputs))
+        
         for t in range(len_sentence):
-            output, hidden = self.policy(inputs[t, :].unsqueeze(dim=0), hidden)
-            hc = torch.cat(hidden, dim=2)  # 1, bsz, hidden_size * 2
+            # output: 1, bsz, hidden_size
+            output, hidden = self.policy.rnn(emb[t, :].unsqueeze(dim=0), hidden)
+            # 1, bsz, hidden_size * 2
+            hc = torch.cat(hidden, dim=2)  
             # execute policy: sample from mean hidden, std sigma
-
             next_hc = Variable(torch.normal(hc.data, std), requires_grad=False).cuda()
             # calculate log-prob and return as Variable
             logprob = self.sampler(hc, next_hc)  # 1, bsz
-            reward = self.loss_func(output.squeeze(dim=0), targets[t, :]).data.unsqueeze(dim=0)  # 1, bsz
+            
+            outputs.append(output)
             probs.append(logprob)
-            rewards.append(reward)
 
             h = next_hc[:, :, :next_hc.size(2) // 2].contiguous()
             c = next_hc[:, :, next_hc.size(2) // 2:].contiguous()
             hidden = (h, c)
 
-        probs = torch.cat(probs, dim=0)  # seq_len, bsz
-        rewards = torch.cat(rewards, dim=0)  # seq_len, bsz
-
-        return probs, rewards, hidden
+        # probs: seq_len, bsz
+        probs = torch.cat(probs, dim=0)  
+        outputs = torch.cat(outputs, dim=0)
+        scores = self.policy.decoder(self.policy.drop(outputs))
+        
+        # rewards: seq_len, bsz
+        rewards = self.loss_func(scores.view(-1, scores.size(2)), targets.view(-1)).data.\
+                    view(len_sentence, -1) 
+        base_rewards = self.loss_func(base_scores.view(-1, base_scores.size(2)), targets.view(-1)).data.\
+                    view(len_sentence, -1)
+            
+        return probs, base_rewards, rewards, hidden, base_hidden

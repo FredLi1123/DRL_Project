@@ -4,11 +4,10 @@ import argparse
 import data
 import model
 import torch
-import reinforce
+from reinforce_reduced import Reinforce
 from tqdm import tqdm
 from torch import optim
 import time
-from utils import query_gpu
 
 
 def repackage_hidden(h):
@@ -21,8 +20,8 @@ def repackage_hidden(h):
 
 def get_batch(source, i, cfg):
     seq_len = min(cfg['max_len'], len(source) - 1 - i)
-    data = Variable(source[i:i+seq_len], requires_grad=False).cuda()
-    target = Variable(source[i+1:i+1+seq_len], requires_grad=False).cuda()
+    data = Variable(source[i:i + seq_len], requires_grad=False).cuda()
+    target = Variable(source[i + 1:i + 1 + seq_len], requires_grad=False).cuda()
     return data, target
 
 
@@ -65,6 +64,10 @@ if __name__ == '__main__':
                         help='location of the data corpus')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='initial learning rate')
+    parser.add_argument('--sigma', type=float, default=0.01,
+                        help='standard deviation for policy')
+    parser.add_argument('--gamma', type=float, default=1.0,
+                        help='discount')
     parser.add_argument('--clip', type=float, default=0.25,
                         help='gradient clipping')
     parser.add_argument('--epochs', type=int, default=40,
@@ -95,6 +98,7 @@ if __name__ == '__main__':
     cfg['epochs'] = args.epochs
     cfg['GPU'] = args.gpu
     cfg['lr'] = args.lr
+    cfg['sigma'] = args.sigma
     cfg['batch_size'] = args.batch_size
     cfg['saveto'] = './'
     cfg['report_interval'] = args.report
@@ -110,7 +114,7 @@ if __name__ == '__main__':
         policy = torch.load(f)
         print(policy)
 
-    reinforce_model = reinforce.Reinforce(policy=policy, sigma=cfg['std'], gamma=cfg['gamma'])
+    reinforce_model = Reinforce(policy=policy, sigma=cfg['std'], gamma=cfg['gamma'])
 
     loss = evaluate(val_data, reinforce_model.policy, cfg)
     print('start from valid loss = ', loss)
@@ -120,13 +124,15 @@ if __name__ == '__main__':
     optimizer = optim.Adam(reinforce_model.parameters(), lr=cfg['lr'])
     start_time = time.time()
     for epoch in range(cfg['epochs']):
-        hidden = policy.init_hidden(bsz=cfg['batch_size'])
         total_loss = 0.0
         total_LM_loss = 0.0
+        base_hidden = policy.init_hidden(bsz=cfg['batch_size'])
+        hidden = policy.init_hidden(bsz=cfg['batch_size'])
         for i in range(0, train_data.size(0) - 1, cfg['max_len']):
             optimizer.zero_grad()
             data, targets = get_batch(train_data, i, cfg)
-            loss, hidden, LM_loss = reinforce_model(data, targets, hidden)
+            loss, hidden, base_hidden, LM_loss = reinforce_model(data, targets, hidden, base_hidden)
+            base_hidden = repackage_hidden(base_hidden)
             hidden = repackage_hidden(hidden)
             total_loss += loss.data
             total_LM_loss += LM_loss
@@ -139,11 +145,11 @@ if __name__ == '__main__':
                 total_loss = 0.0
                 total_LM_loss = 0.0
                 print('elapse time: ', time.time() - start_time)
-            # query_gpu()
+                loss = evaluate(val_data, reinforce_model.policy, cfg)
+                print('validation loss: ', loss)
+
         print('Epoch: ', epoch, ' elapse:', time.time() - start_time)
-
         loss = evaluate(val_data, reinforce_model.policy, cfg)
-
         save_path = cfg['saveto'] + '_epoch' + str(epoch) + '_loss' + str(loss)
         save_model(save_path, reinforce_model.policy)
         print('Epoch: ', epoch, ' save to ', save_path)
