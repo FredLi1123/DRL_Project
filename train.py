@@ -9,6 +9,8 @@ from tqdm import tqdm
 from torch import optim
 import time
 
+from utils import Recorder
+
 
 def repackage_hidden(h):
     """Wraps hidden states in new Variables, to detach them from their history."""
@@ -60,9 +62,11 @@ def save_model(path, model):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
+    parser = argparse.ArgumentParser()
     parser.add_argument('--data', type=str, default='./data/wikitext-2',
                         help='location of the data corpus')
+    parser.add_argument('--output', type=str, default='./results/log.txt',
+                        help='location of log file')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='initial learning rate')
     parser.add_argument('--sigma', type=float, default=0.01,
@@ -92,6 +96,7 @@ if __name__ == '__main__':
     corpus = data.Corpus(args.data)
     cfg = dict()
     cfg['dict_size'] = len(corpus.dictionary)
+    cfg['output_file'] = args.output
     cfg['init'] = args.init
     cfg['max_len'] = args.bptt
     cfg['epochs'] = args.epochs
@@ -115,6 +120,7 @@ if __name__ == '__main__':
         print(policy)
 
     reinforce_model = Reinforce(policy=policy, sigma=cfg['sigma'], gamma=cfg['gamma'])
+    recorder = Recorder(output_path=cfg['output_file'])
 
     loss = evaluate(val_data, reinforce_model.policy, cfg)
     print('start from valid loss = ', loss)
@@ -152,6 +158,9 @@ if __name__ == '__main__':
 
         print('Epoch: ', epoch, ' elapse:', time.time() - start_time)
         loss = evaluate(val_data, reinforce_model.policy, cfg)
+        recorder.record(epoch, cfg['alpha'], loss)
         save_path = cfg['saveto'] + '_epoch' + str(epoch) + '_loss' + str(loss)
         save_model(save_path, reinforce_model.policy)
         print('Epoch: ', epoch, ' save to ', save_path)
+    
+    recorder.close()
