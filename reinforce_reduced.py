@@ -19,7 +19,7 @@ class GaussianNet(nn.Module):
         '''
         # (sample - mu)**2: 1, bsz, 1300
 
-        logprob = -torch.sum((sample-mu)**2, dim=2)  # 1, bsz
+        logprob = torch.sum((sample-mu)**2, dim=2)  # 1, bsz
         return logprob.sum(dim=0, keepdim=True)
 
 
@@ -28,20 +28,19 @@ class Reinforce(nn.Module):
     def __init__(self, policy, sigma=1, gamma=1.0):
         super(Reinforce, self).__init__()
         self.policy = policy
-        self.baseline = policy
-        self.baseline.eval()
 
         self.sigma = sigma
         self.gamma = gamma
         self.sampler = GaussianNet(self.sigma)
         self.loss_func = nn.CrossEntropyLoss(reduce=False)
 
-    def forward(self, inputs, targets, hidden, base_hidden):
+    def forward(self, inputs, targets, hidden, base_hidden, alpha):
         '''
         :param inputs: seq_len, bsz
         :param targets: seq_len, bsz
         :return:
         '''
+
         logprobs, base_rewards, rewards, hidden, base_hidden = \
             self.generate_episode(inputs, targets, hidden, base_hidden)
         episode_len = rewards.size(0)
@@ -55,12 +54,11 @@ class Reinforce(nn.Module):
         for i in range(episode_len-1, -1, -1):
             running_sum = rewards[i, :] + self.gamma * running_sum
             returns[i, :] = running_sum
-            base_running_sum = base_rewards[i, :] + self.gamma * base_running_sum
+            base_running_sum = base_rewards.data[i, :] + self.gamma * base_running_sum
             base_returns[i, :] = base_running_sum
 
-        returns = returns - base_returns
-        loss = returns * logprobs  # seq_len, bsz
-        total_loss = torch.mean(loss)
+        reinforce_loss = torch.mean(returns*logprobs)  # seq_len, bsz
+        total_loss = alpha * reinforce_loss + (1-alpha) * base_rewards.mean()
 
         return total_loss, hidden, base_hidden, rewards.mean()
 
@@ -74,7 +72,7 @@ class Reinforce(nn.Module):
         outputs = []
         rewards = []
 
-        base_scores, base_hidden = self.baseline(inputs, base_hidden)
+        base_scores, base_hidden = self.policy(inputs, base_hidden)
 
         len_sentence = inputs.size(0)
         hc = torch.cat(hidden, dim=2)  # 1, bsz, 1300
@@ -107,7 +105,7 @@ class Reinforce(nn.Module):
         # rewards: seq_len, bsz
         rewards = self.loss_func(scores.view(-1, scores.size(2)), targets.view(-1)).data.\
                     view(len_sentence, -1) 
-        base_rewards = self.loss_func(base_scores.view(-1, base_scores.size(2)), targets.view(-1)).data.\
+        base_rewards = self.loss_func(base_scores.view(-1, base_scores.size(2)), targets.view(-1)).\
                     view(len_sentence, -1)
             
         return probs, base_rewards, rewards, hidden, base_hidden

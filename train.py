@@ -68,6 +68,8 @@ if __name__ == '__main__':
                         help='standard deviation for policy')
     parser.add_argument('--gamma', type=float, default=1.0,
                         help='discount')
+    parser.add_argument('--alpha', type=float, default=0.1,
+                        help='ratio')
     parser.add_argument('--clip', type=float, default=0.25,
                         help='gradient clipping')
     parser.add_argument('--epochs', type=int, default=40,
@@ -84,10 +86,6 @@ if __name__ == '__main__':
                         default='model_200.pt', help="The LSTM model")
     parser.add_argument('--report', type=int,
                         default=50, help="The report interval")
-    parser.add_argument('--std', type=float,
-                        default=0.1, help="The standard deviation")
-    parser.add_argument('--gamma', type=float,
-                        default=1.0, help="discount factor")
     args = parser.parse_args()
 
     corpus = data.Corpus(args.data)
@@ -99,11 +97,12 @@ if __name__ == '__main__':
     cfg['GPU'] = args.gpu
     cfg['lr'] = args.lr
     cfg['sigma'] = args.sigma
+    cfg['gamma'] = args.gamma
+    cfg['alpha'] = args.alpha
     cfg['batch_size'] = args.batch_size
     cfg['saveto'] = './'
     cfg['report_interval'] = args.report
-    cfg['std'] = args.std
-    cfg['gamma'] = args.gamma
+    
 
     print(cfg)
     train_data = batchify(corpus.train, cfg['batch_size'])
@@ -114,7 +113,7 @@ if __name__ == '__main__':
         policy = torch.load(f)
         print(policy)
 
-    reinforce_model = Reinforce(policy=policy, sigma=cfg['std'], gamma=cfg['gamma'])
+    reinforce_model = Reinforce(policy=policy, sigma=cfg['sigma'], gamma=cfg['gamma'])
 
     loss = evaluate(val_data, reinforce_model.policy, cfg)
     print('start from valid loss = ', loss)
@@ -131,13 +130,14 @@ if __name__ == '__main__':
         for i in range(0, train_data.size(0) - 1, cfg['max_len']):
             optimizer.zero_grad()
             data, targets = get_batch(train_data, i, cfg)
-            loss, hidden, base_hidden, LM_loss = reinforce_model(data, targets, hidden, base_hidden)
-            base_hidden = repackage_hidden(base_hidden)
-            hidden = repackage_hidden(hidden)
+            loss, hidden, base_hidden, LM_loss = reinforce_model(data, targets, hidden, base_hidden, cfg['alpha'])
             total_loss += loss.data
             total_LM_loss += LM_loss
             loss.backward()
             optimizer.step()
+            
+            base_hidden = repackage_hidden(base_hidden)
+            hidden = repackage_hidden(hidden)
             nbsz = (i // cfg['max_len'] + 1)
             if nbsz % cfg['report_interval'] == 0:
                 print('batch ', nbsz, ': loss = ', total_loss.cpu().numpy() / cfg['report_interval'])
