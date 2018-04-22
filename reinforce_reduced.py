@@ -46,15 +46,15 @@ class Reinforce(nn.Module):
         bsz = rewards.size(1)
 
         running_sum = torch.zeros((bsz,)).cuda()
-        base_running_sum = torch.zeros((bsz,)).cuda()
+        # base_running_sum = torch.zeros((bsz,)).cuda()
         returns = Variable(torch.zeros((episode_len, bsz)), requires_grad=False).cuda()
-        base_returns = Variable(torch.zeros((episode_len, bsz)), requires_grad=False).cuda()
+        # base_returns = Variable(torch.zeros((episode_len, bsz)), requires_grad=False).cuda()
         # calculate returns
         for i in range(episode_len-1, -1, -1):
             running_sum = rewards[i, :] + self.gamma * running_sum
             returns[i, :] = running_sum
-            base_running_sum = base_rewards.data[i, :] + self.gamma * base_running_sum
-            base_returns[i, :] = base_running_sum
+            # base_running_sum = base_rewards.data[i, :] + self.gamma * base_running_sum
+            # base_returns[i, :] = base_running_sum
 
         reinforce_loss = torch.mean(returns*logprobs)  # seq_len, bsz
         total_loss = alpha * reinforce_loss + (1-alpha) * base_rewards.mean()

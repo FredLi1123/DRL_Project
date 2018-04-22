@@ -152,6 +152,6 @@ if __name__ == '__main__':
 
         print('Epoch: ', epoch, ' elapse:', time.time() - start_time)
         loss = evaluate(val_data, reinforce_model.policy, cfg)
-        save_path = cfg['saveto'] + '_epoch' + str(epoch) + '_loss' + str(loss)
+        save_path = cfg['saveto'] + '_epoch' + str(epoch) + '_loss' + str(loss) + '_alpha' + str(cfg['alpha'])
         save_model(save_path, reinforce_model.policy)
         print('Epoch: ', epoch, ' save to ', save_path)
