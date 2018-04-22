@@ -57,6 +57,7 @@ class Reinforce(nn.Module):
             base_running_sum = base_rewards.data[i, :] + self.gamma * base_running_sum
             base_returns[i, :] = base_running_sum
 
+        returns = returns - base_returns
         reinforce_loss = torch.mean(returns*logprobs)  # seq_len, bsz
         total_loss = alpha * reinforce_loss + (1-alpha) * base_rewards.mean()
 

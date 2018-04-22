@@ -21,7 +21,7 @@ def repackage_hidden(h):
 def get_batch(source, i, cfg):
     seq_len = min(cfg['max_len'], len(source) - 1 - i)
     data = Variable(source[i:i + seq_len], requires_grad=False).cuda()
-    target = Variable(source[i + 1:i + 1 + seq_len], requires_grad=False).cuda()
+    target = Variable(source[i + 1: i + 1 + seq_len], requires_grad=False).cuda()
     return data, target
 
 
