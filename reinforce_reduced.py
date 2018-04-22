@@ -19,7 +19,7 @@ class GaussianNet(nn.Module):
         '''
         # (sample - mu)**2: 1, bsz, 1300
 
-        logprob = torch.sum((sample-mu)**2, dim=2)  # 1, bsz
+        logprob = -torch.sum((sample-mu)**2, dim=2)  # 1, bsz
         return logprob.sum(dim=0, keepdim=True)
 
 
