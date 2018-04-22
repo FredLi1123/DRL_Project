@@ -163,4 +163,6 @@ if __name__ == '__main__':
         save_model(save_path, reinforce_model.policy)
         print('Epoch: ', epoch, ' save to ', save_path)
     
+    test_loss = evaluate(test_data, reinforce_model.policy, cfg)
+    recorder.record('', cfg['alpha'], test_loss)
     recorder.close()
