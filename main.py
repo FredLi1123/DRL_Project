@@ -16,7 +16,7 @@ parser.add_argument('--model', type=str, default='LSTM',
                     help='type of recurrent net (RNN_TANH, RNN_RELU, LSTM, GRU)')
 parser.add_argument('--emsize', type=int, default=200,
                     help='size of word embeddings')
-parser.add_argument('--nhid', type=int, default=200,
+parser.add_argument('--nhid', ntype=int, default=200,
                     help='number of hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=2,
                     help='number of layers')
@@ -46,7 +46,7 @@ parser.add_argument('--cuda', action='store_true',
                     help='use CUDA')
 parser.add_argument('--log-interval', type=int, default=200, metavar='N',
                     help='report interval')
-parser.add_argument('--save', type=str,  default='model.pt',
+parser.add_argument('--save', type=str,  default='baseline_model.pt',
                     help='path to save the final model')
 args = parser.parse_args()
 
@@ -107,6 +107,7 @@ criterion = nn.CrossEntropyLoss()
 # Training code
 ###############################################################################
 
+
 def repackage_hidden(h):
     """Wraps hidden states in new Variables, to detach them from their history."""
     if type(h) == Variable:
@@ -138,14 +139,15 @@ def train():
     total_loss = 0
     start_time = time.time()
     ntokens = len(corpus.dictionary)
-    hidden = model.init_hidden(args.batch_size)
+    # hidden = model.init_hidden(args.batch_size)
     for batch, i in enumerate(range(0, train_data.size(0) - 1, args.bptt)):
         data, targets = get_batch(train_data, i)
         # Starting each batch, we detach the hidden state from how it was previously produced.
         # If we didn't, the model would try backpropagating all the way to start of the dataset.
-        hidden = repackage_hidden(hidden)
+        # hidden = repackage_hidden(hidden)
         model.zero_grad()
-        output, hidden = model(data, hidden)
+        hidden = model.init_hidden(args.batch_size)
+        output, _ = model(data, hidden)
         loss = criterion(output.view(-1, ntokens), targets)
         loss.backward()
 
@@ -176,13 +178,14 @@ def evaluate(data_source):
     model.eval()
     total_loss = 0
     ntokens = len(corpus.dictionary)
-    hidden = model.init_hidden(eval_batch_size)
+    # hidden = model.init_hidden(eval_batch_size)
     for i in range(0, data_source.size(0) - 1, args.bptt):
         data, targets = get_batch(data_source, i, evaluation=True)
-        output, hidden = model(data, hidden)
+        hidden = model.init_hidden(eval_batch_size)
+        output, _ = model(data, hidden)
         output_flat = output.view(-1, ntokens)
         total_loss += len(data) * criterion(output_flat, targets).data
-        hidden = repackage_hidden(hidden)
+        # hidden = repackage_hidden(hidden)
     return total_loss[0] / len(data_source)
 
 # At any point you can hit Ctrl + C to break out of training early.

@@ -30,14 +30,15 @@ def evaluate(data_source, model, cfg):
     model.eval()
     total_loss = 0
     ntokens = cfg['dict_size']
-    hidden = model.init_hidden(cfg['batch_size'])
+
     criterion = nn.CrossEntropyLoss()
     for i in tqdm(range(0, data_source.size(0) - 1, cfg['max_len'])):
         data, targets = get_batch(data_source, i, cfg)
-        output, hidden = model(data, hidden)
+        hidden = model.init_hidden(cfg['batch_size'])
+        output, _ = model(data, hidden)
         output_flat = output.view(-1, ntokens)
         total_loss += len(data) * criterion(output_flat, targets.view(-1)).data
-        hidden = repackage_hidden(hidden)
+        # hidden = repackage_hidden(hidden)
     model.train()
     return total_loss[0] / len(data_source)
 
@@ -83,7 +84,7 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', action='store_true',
                         help='use GPU')
     parser.add_argument('--init', type=str,
-                        default='model_200.pt', help="The LSTM model")
+                        default='baseline_model.pt', help="The LSTM model")
     parser.add_argument('--report', type=int,
                         default=50, help="The report interval")
     args = parser.parse_args()
@@ -125,28 +126,29 @@ if __name__ == '__main__':
     for epoch in range(cfg['epochs']):
         total_loss = 0.0
         total_LM_loss = 0.0
-        base_hidden = policy.init_hidden(bsz=cfg['batch_size'])
-        hidden = policy.init_hidden(bsz=cfg['batch_size'])
+
         for i in range(0, train_data.size(0) - 1, cfg['max_len']):
             optimizer.zero_grad()
             data, targets = get_batch(train_data, i, cfg)
-            loss, hidden, base_hidden, LM_loss = reinforce_model(data, targets, hidden, base_hidden, cfg['alpha'])
+            base_hidden = policy.init_hidden(bsz=cfg['batch_size'])
+            hidden = policy.init_hidden(bsz=cfg['batch_size'])
+            loss, LM_loss = reinforce_model(data, targets, hidden, base_hidden, cfg['alpha'])
             total_loss += loss.data
             total_LM_loss += LM_loss
             loss.backward()
             optimizer.step()
             
-            base_hidden = repackage_hidden(base_hidden)
-            hidden = repackage_hidden(hidden)
+            # base_hidden = repackage_hidden(base_hidden)
+            # hidden = repackage_hidden(hidden)
             nbsz = (i // cfg['max_len'] + 1)
             if nbsz % cfg['report_interval'] == 0:
                 print('batch ', nbsz, ': loss = ', total_loss.cpu().numpy() / cfg['report_interval'])
                 print('batch ', nbsz, ': LM loss = ', total_LM_loss / cfg['report_interval'])
                 total_loss = 0.0
                 total_LM_loss = 0.0
-                print('elapse time: ', time.time() - start_time)
-                loss = evaluate(val_data, reinforce_model.policy, cfg)
-                print('validation loss: ', loss)
+                # print('elapse time: ', time.time() - start_time)
+                # loss = evaluate(val_data, reinforce_model.policy, cfg)
+                # print('validation loss: ', loss)
 
         print('Epoch: ', epoch, ' elapse:', time.time() - start_time)
         loss = evaluate(val_data, reinforce_model.policy, cfg)
