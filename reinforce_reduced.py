@@ -41,8 +41,7 @@ class Reinforce(nn.Module):
         :return:
         '''
 
-        logprobs, base_rewards, rewards, hidden, base_hidden = \
-            self.generate_episode(inputs, targets, hidden, base_hidden)
+        logprobs, base_rewards, rewards = self.generate_episode(inputs, targets, hidden, base_hidden)
         episode_len = rewards.size(0)
         bsz = rewards.size(1)
 
@@ -61,7 +60,7 @@ class Reinforce(nn.Module):
         reinforce_loss = torch.mean(returns*logprobs)  # seq_len, bsz
         total_loss = alpha * reinforce_loss + (1-alpha) * base_rewards.mean()
 
-        return total_loss, hidden, base_hidden, rewards.mean()
+        return total_loss, rewards.mean()
 
     def generate_episode(self, inputs, targets, hidden, base_hidden):
         '''
@@ -71,9 +70,8 @@ class Reinforce(nn.Module):
         '''
         probs = []
         outputs = []
-        rewards = []
 
-        base_scores, base_hidden = self.policy(inputs, base_hidden)
+        base_scores, _ = self.policy(inputs, base_hidden)
 
         len_sentence = inputs.size(0)
         hc = torch.cat(hidden, dim=2)  # 1, bsz, 1300
@@ -104,9 +102,7 @@ class Reinforce(nn.Module):
         scores = self.policy.decoder(self.policy.drop(outputs))
         
         # rewards: seq_len, bsz
-        rewards = self.loss_func(scores.view(-1, scores.size(2)), targets.view(-1)).data.\
-                    view(len_sentence, -1) 
-        base_rewards = self.loss_func(base_scores.view(-1, base_scores.size(2)), targets.view(-1)).\
-                    view(len_sentence, -1)
+        rewards = self.loss_func(scores.view(-1, scores.size(2)), targets.view(-1)).data.view(len_sentence, -1)
+        base_rewards = self.loss_func(base_scores.view(-1, base_scores.size(2)), targets.view(-1)).view(len_sentence, -1)
             
-        return probs, base_rewards, rewards, hidden, base_hidden
+        return probs, base_rewards, rewards
