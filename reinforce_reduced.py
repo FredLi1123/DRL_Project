@@ -19,7 +19,7 @@ class GaussianNet(nn.Module):
         '''
         # (sample - mu)**2: 1, bsz, 1300
 
-        logprob = torch.sum((sample-mu)**2, dim=2)  # 1, bsz
+        logprob = -torch.sum((sample-mu)**2, dim=2)  # 1, bsz
         return logprob.sum(dim=0, keepdim=True)
 
 
@@ -53,10 +53,7 @@ class Reinforce(nn.Module):
         for i in range(episode_len-1, -1, -1):
             running_sum = rewards[i, :] + self.gamma * running_sum
             returns[i, :] = running_sum
-            base_running_sum = base_rewards.data[i, :] + self.gamma * base_running_sum
-            base_returns[i, :] = base_running_sum
 
-        returns = returns - base_returns
         reinforce_loss = torch.mean(returns*logprobs)  # seq_len, bsz
         total_loss = alpha * reinforce_loss + (1-alpha) * base_rewards.mean()
 
