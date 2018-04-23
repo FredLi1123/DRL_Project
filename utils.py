@@ -24,6 +24,7 @@ class Recorder(object):
     
     def record(self, epoch, alpha, val_loss):
         self.file.write(str(alpha)+','+str(epoch)+','+str('{:3f}'.format(val_loss))+'\n')
+        self.file.flush()
     
     def close(self):
         self.file.close()
