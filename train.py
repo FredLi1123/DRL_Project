@@ -9,7 +9,7 @@ from tqdm import tqdm
 from torch import optim
 import time
 
-from utils import Recorder
+from utils import Recorder, annealing
 
 
 def repackage_hidden(h):
@@ -106,7 +106,7 @@ if __name__ == '__main__':
     cfg['gamma'] = args.gamma
     cfg['alpha'] = args.alpha
     cfg['batch_size'] = args.batch_size
-    cfg['saveto'] = './'
+    cfg['saveto'] = './model_200/'
     cfg['report_interval'] = args.report
     
 
@@ -122,8 +122,10 @@ if __name__ == '__main__':
     reinforce_model = Reinforce(policy=policy, sigma=cfg['sigma'], gamma=cfg['gamma'])
     recorder = Recorder(output_path=cfg['output_file'])
 
+    valid_loss = []
     loss = evaluate(val_data, reinforce_model.policy, cfg)
     print('start from valid loss = ', loss)
+    valid_loss.append(loss)
 
     ntokens = cfg['dict_size']
 
@@ -158,6 +160,11 @@ if __name__ == '__main__':
 
         print('Epoch: ', epoch, ' elapse:', time.time() - start_time)
         loss = evaluate(val_data, reinforce_model.policy, cfg)
+        if loss > valid_loss[-1]:
+            annealing(optimizer, decay_rate=2)
+            cfg['lr'] /= 2
+            print('learning rate anneals to ', cfg['lr'])
+        valid_loss.append(loss)
         recorder.record(epoch, cfg['alpha'], loss)
         save_path = cfg['saveto'] + '_epoch' + str(epoch) + '_loss' + str(loss)
         save_model(save_path, reinforce_model.policy)
